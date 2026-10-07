@@ -76,12 +76,8 @@ class Config(BaseSettings):
     report_file: str = "Found words.txt"
 
     @property
-    def path_data_folder(self) -> Path:
-        return Path.cwd() / self.data_folder
-
-    @property
     def path_file_ru_words(self) -> Path:
-        return self.path_data_folder / self.file_ru_words
+        return Path(self.data_folder) / self.file_ru_words
 
     @property
     def path_report_folder(self) -> Path:
