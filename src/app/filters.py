@@ -2,7 +2,6 @@
 # Embedded libraries                                                          #
 # ----------------------------------------------------------------------------#
 from abc import ABC, abstractmethod
-from pathlib import Path
 from re import escape as re_escape
 from re import sub as re_sub
 
@@ -11,7 +10,6 @@ from re import sub as re_sub
 # ----------------------------------------------------------------------------#
 from src.config import Config, LetterFilterModel
 from src.logs import SmartLogger
-from src.utilities import Utilities as uts
 
 # ----------------------------------------------------------------------------#
 # Application code                                                            #
@@ -19,7 +17,9 @@ from src.utilities import Utilities as uts
 
 
 class FilterBuilder(ABC):
-    """Абстрактный интерфейс строителей параметров фильтрации."""
+    """
+    Абстрактный интерфейс строителей параметров фильтрации.
+    """
 
     @abstractmethod
     def build(self) -> LetterFilterModel:
@@ -40,20 +40,22 @@ class InputFilterBuilder(FilterBuilder):
     фильтра. Полностью собранная модель возвращается методом ``build()``.
     """
 
-    def __init__(self, cfg: Config, lfm: LetterFilterModel, log: SmartLogger):
+    def __init__(self, *, cfg: Config, lfm: LetterFilterModel, log: SmartLogger):
         """Инициализирует строитель фильтра пользовательского ввода.
 
         Args:
-            cfg: Конфигурация приложения.
-            lfm: Начальные параметры фильтра. Модель копируется перед
-                использованием и не изменяется напрямую вызывающим кодом.
-            log: Логгер для сообщений пользователю.
+            cfg: Конфигурация приложения. Если не передана,
+                используется конфигурация по умолчанию.
+            lfm: Начальные параметры фильтра. Если не передана,
+                используется модель фильтрации по умолчанию.
+            log: Логгер приложения. Если не передан,
+                создаётся новый экземпляр.
         """
 
-        self._cfg = cfg.copy()
-        self._lfm = lfm.copy()
-        self._log = log
-        self._lfm.letters_fixed_pos: list[str] = (
+        self._cfg = cfg if cfg is not None else Config()
+        self._lfm = lfm if lfm is not None else LetterFilterModel()
+        self._log = log if log is not None else SmartLogger()
+        self._lfm.letters_fixed_pos = (
             [""]
             if isinstance(self._lfm.letters_fixed_pos, str)
             else self._lfm.letters_fixed_pos
@@ -73,7 +75,7 @@ class InputFilterBuilder(FilterBuilder):
         """
         return "".join(dict.fromkeys(letters.lower()))
 
-    def _input_len_word(self, provided_input: str | None = None) -> None:
+    def _word_length(self, provided_input: str | None = None) -> None:
         """
         Получает и сохраняет длину искомого слова.
 
@@ -129,7 +131,7 @@ class InputFilterBuilder(FilterBuilder):
             self._lfm.word_length = quantity
             return
 
-    def _input_letters_excluded(self, provided_input: str | None = None) -> None:
+    def _letters_excluded(self, provided_input: str | None = None) -> None:
         """
         Получает символы, которых гарантированно нет в искомом слове.
 
@@ -141,7 +143,7 @@ class InputFilterBuilder(FilterBuilder):
             provided_input: Значение для автоматизированного сценария
                 или теста. Если не передано, значение читается из консоли.
         """
-        self._log.info(msg="Введите символы, которых нет в искомом слове.", pretty=True)
+        self._log.info(msg="Введите символы, которых нет в слове.", pretty=True)
         raw: str = provided_input if provided_input is not None else input()
         letters_excluded = re_sub(
             pattern=self._cfg.pattern_ru_letters,
@@ -154,7 +156,7 @@ class InputFilterBuilder(FilterBuilder):
         )
         self._lfm.letters_excluded = letters_excluded
 
-    def _input_letters_included(self, provided_input: str | None = None) -> None:
+    def _letters_included(self, provided_input: str | None = None) -> None:
         """
         Получает символы, которые гарантированно присутствуют в слове.
 
@@ -168,7 +170,7 @@ class InputFilterBuilder(FilterBuilder):
         """
 
         self._log.info(
-            msg="Введите символы, которые присутствуют в искомом слове.",
+            msg="Введите символы, которые есть в слове.",
             pretty=True,
         )
         raw: str = provided_input if provided_input is not None else input()
@@ -187,7 +189,7 @@ class InputFilterBuilder(FilterBuilder):
 
     def _validate_bounds(self, provided_input: list[str] | None = None) -> None:
         """
-        Проверяет количество позиционных ограничений.
+        Проверяет соответствие количества позиционных ограничений длине слова.
 
         Args:
             provided_input: Ограничения для отдельных позиций. Если значение
@@ -203,16 +205,73 @@ class InputFilterBuilder(FilterBuilder):
                 "Количество ограничений позиций должно совпадать с длиной слова."
             )
 
-    def _input_letters_excluded_pos(
+    def _position_constraints(
+        self,
+        *,
+        start_msg: str,
+        is_fixed_pos: bool = False,
+        provided_input: list[str] | None = None,
+    ) -> list[str]:
+        """
+        Получает и обрабатывает ограничения для каждой позиции слова.
+
+        Для каждой позиции считывает значение из консоли или использует
+        соответствующее значение из ``provided_input``. Из введённых данных
+        удаляются недопустимые символы.
+
+        Args:
+            start_msg: Сообщение, отображаемое перед началом ввода.
+            is_fixed_pos: Если ``True``, для каждой позиции сохраняется
+                не более одного символа.
+            provided_input: Предварительно заданные значения для позиций.
+                Если не переданы, значения считываются из консоли.
+
+        Returns:
+            Список ограничений по позициям. Пустая строка означает,
+            что для соответствующей позиции ограничение не задано.
+
+        Raises:
+            ValueError: Если количество предварительно заданных значений
+                не совпадает с длиной слова.
+        """
+        self._validate_bounds(provided_input=provided_input)
+        letters_pos: list[str] = []
+
+        self._log.info(
+            msg=start_msg,
+            pretty=True,
+        )
+        for index in range(self._lfm.word_length):
+            self._log.info(
+                msg=f"Позиция {index + 1} ({index * '+'}*{(self._lfm.word_length - index - 1) * '+'}):",
+                pretty=True,
+            )
+            raw: str = provided_input[index] if provided_input is not None else input()
+            letters_pos_item = re_sub(
+                pattern=rf"[^{re_escape(self._lfm.letters_included)}]",
+                repl="",
+                string=self._normalize_unique_chars(letters=raw),
+            )
+            if is_fixed_pos:
+                letters_pos_item = letters_pos_item[:1]
+            self._log.info(
+                msg=f"Были обнаружены символы: {list(letters_pos_item)}.",
+                pretty=True,
+            )
+            letters_pos.append(letters_pos_item)
+        return letters_pos
+
+    def _letters_excluded_pos(
         self,
         provided_input: list[str] | None = None,
     ) -> None:
         """
-        Получает запрещённые символы для каждой позиции слова.
+        Получает исключенные символы для каждой позиции слова.
 
-        Для каждой позиции вводится набор символов из ``letters_included``,
-        которые не могут находиться на этой позиции. Повторы удаляются,
-        а символы, отсутствующие в ``letters_included``, отбрасываются.
+        Для каждой позиции вводится набор символов, выбранных из
+        ``letters_included``. Эти символы не должны находиться на
+        соответствующей позиции. Повторы удаляются, а символы, отсутствующие
+        в ``letters_included``, отбрасываются.
 
         Результат сохраняется в поле ``letters_excluded_pos`` текущей
         модели фильтра.
@@ -226,34 +285,12 @@ class InputFilterBuilder(FilterBuilder):
             ValueError: Если количество переданных значений не совпадает
                 с длиной слова.
         """
-
-        self._validate_bounds(provided_input=provided_input)
-        letters_excluded_pos: list[str] = []
-
-        self._log.info(
-            msg="Введите символы искомого слова, которых нет в данных позициях.",
-            pretty=True,
+        self._lfm.letters_excluded_pos = self._position_constraints(
+            start_msg="Введите исключённые символы по позициям.",
+            provided_input=provided_input,
         )
-        for index in range(self._lfm.word_length):
-            self._log.info(
-                msg=f"Позиция {index + 1} ({index * '+'}*{(self._lfm.word_length - index - 1) * '+'}):",
-                pretty=True,
-            )
-            raw: str = provided_input[index] if provided_input is not None else input()
-            letters_excluded_pos_item = re_sub(
-                pattern=rf"[^{re_escape(self._lfm.letters_included)}]",
-                repl="",
-                string=self._normalize_unique_chars(letters=raw),
-            )
-            self._log.info(
-                msg=f"Были обнаружены символы: {list(letters_excluded_pos_item)}.",
-                pretty=True,
-            )
-            letters_excluded_pos.append(letters_excluded_pos_item)
 
-        self._lfm.letters_excluded_pos = letters_excluded_pos
-
-    def _input_letters_fixed_pos(
+    def _letters_fixed_pos(
         self,
         provided_input: list[str] | None = None,
     ) -> None:
@@ -279,38 +316,18 @@ class InputFilterBuilder(FilterBuilder):
             ValueError: Если количество переданных значений не совпадает
                 с длиной слова.
         """
-        self._validate_bounds(provided_input=provided_input)
-        letters_fixed_pos: list[str] = []
-
-        self._log.info(
-            msg=(
-                "Введите символы искомого слова, которые находятся в данных позициях. "
+        self._lfm.letters_fixed_pos = self._position_constraints(
+            start_msg=(
+                "Введите символы на фиксированных позициях. "
                 "Будет считан первый подходящий символ для каждой позиции."
             ),
-            pretty=True,
+            provided_input=provided_input,
+            is_fixed_pos=True,
         )
-        for index in range(self._lfm.word_length):
-            self._log.info(
-                msg=f"Позиция {index + 1} ({index * '+'}*{(self._lfm.word_length - index - 1) * '+'}):",
-                pretty=True,
-            )
-            raw: str = provided_input[index] if provided_input is not None else input()
-            letters_fixed_pos_item = (
-                re_sub(
-                    pattern=rf"[^{re_escape(self._lfm.letters_included)}]",
-                    repl="",
-                    string=self._normalize_unique_chars(letters=raw),
-                )
-            )[:1]
-            self._log.info(
-                msg=f"Были обнаружены символы: {list(letters_fixed_pos_item)}.",
-                pretty=True,
-            )
-            letters_fixed_pos.append(letters_fixed_pos_item)
-        self._lfm.letters_fixed_pos = letters_fixed_pos
 
-    def _confirm_param(
+    def _confirmation(
         self,
+        *,
         prompt: str,
         provided_input: str | None = None,
     ) -> bool:
@@ -358,8 +375,7 @@ class InputFilterBuilder(FilterBuilder):
         Собирает модель фильтра из интерактивного ввода.
 
         Метод последовательно получает общие и позиционные ограничения,
-        а также параметры сохранения и вывода результата. Состояние модели,
-        переданной конструктору, не изменяется.
+        а также параметры сохранения и вывода результата.
 
         Returns:
             Заполненная модель фильтра.
@@ -369,19 +385,19 @@ class InputFilterBuilder(FilterBuilder):
                 формат.
         """
 
-        self._input_len_word()
-        self._input_letters_excluded()
-        self._input_letters_included()
+        self._word_length()
+        self._letters_excluded()
+        self._letters_included()
 
         if self._lfm.letters_included:
-            self._input_letters_excluded_pos()
-            self._input_letters_fixed_pos()
+            self._letters_excluded_pos()
+            self._letters_fixed_pos()
         else:
             self._lfm.letters_excluded_pos = [""] * self._lfm.word_length
             self._lfm.letters_fixed_pos = [""] * self._lfm.word_length
 
-        self._lfm.is_save_file = self._confirm_param(prompt="Сохранить файл?")
-        self._lfm.is_output_terminal = self._confirm_param(
+        self._lfm.is_save_file = self._confirmation(prompt="Сохранить файл?")
+        self._lfm.is_output_terminal = self._confirmation(
             prompt="Вывести найденные слова в терминал?"
         )
 
@@ -405,48 +421,50 @@ class ReceivedFilterBuilder(FilterBuilder):
     и удаляет недопустимые символы.
     """
 
-    def __init__(self, lfm: LetterFilterModel, log: SmartLogger):
+    def __init__(self, *, lfm: LetterFilterModel, log: SmartLogger):
         """Инициализирует строитель фильтра из внешней модели.
 
         Args:
-            lfm: Модель фильтра, полученная от внешнего источника.
-                Исходная модель копируется и не изменяется.
-            log: Логгер приложения.
+            lfm: Начальные параметры фильтра. Если не передана,
+                используется модель фильтрации по умолчанию.
+            log: Логгер приложения. Если не передан,
+                создаётся новый экземпляр.
         """
-        self._lfm = lfm.copy()
-        self._log = log
+        self._lfm = lfm if lfm is not None else LetterFilterModel()
+        self._log = log if log is not None else SmartLogger()
 
     @staticmethod
-    def _normalize_position_constraints(
-        constraints: list[str] | str, allowed_letters: str
+    def _normalize_position_filters(
+        *, filters: list[str] | str, allowed_letters: str
     ) -> list[str] | str:
         """
-        Нормализует позиционные ограничения.
+        Нормализует позиционные фильтры.
 
         Для строкового формата недопустимые символы заменяются на ``+``.
         Символ ``+`` обозначает свободную позицию. Для списочного формата
         недопустимые символы удаляются из каждого элемента.
 
         Args:
-            constraints: Ограничения в формате строки или списка строк.
+            filters: Фильтры в формате строки или списка строк.
             allowed_letters: Буквы, разрешённые в позиционных ограничениях.
 
         Returns:
-            Нормализованные ограничения в том же формате, что и
-            ``constraints``.
+            Нормализованные фильтры в том же формате, что и
+            ``filters``.
         """
-        if isinstance(constraints, str):
+        if isinstance(filters, str):
             correct = set(f"{allowed_letters}+")
-            return "".join(char if char in correct else "+" for char in constraints)
+            return "".join(char if char in correct else "+" for char in filters)
         else:
-            invalid_symbols = "".join(set("".join(constraints)) - set(allowed_letters))
+            invalid_symbols = "".join(set("".join(filters)) - set(allowed_letters))
             table_excluded = str.maketrans("", "", invalid_symbols)
-            return [elem.translate(table_excluded) for elem in constraints]
+            return [elem.translate(table_excluded) for elem in filters]
 
     def build(self) -> LetterFilterModel:
         """
-        Нормализует внешнюю модель фильтра.
+        Нормализует модель фильтра, полученную из внешнего источника.
 
+        Исключённые символы удаляются из списка обязательных символов.
         Позиционные ограничения, которые короче длины слова, дополняются.
         Для строкового ``letters_fixed_pos`` свободные позиции обозначаются
         символом ``+``.
@@ -480,109 +498,17 @@ class ReceivedFilterBuilder(FilterBuilder):
             table_excluded
         )
 
-        self._lfm.letters_excluded_pos = self._normalize_position_constraints(
-            constraints=self._lfm.letters_excluded_pos,
+        self._lfm.letters_excluded_pos = self._normalize_position_filters(
+            filters=self._lfm.letters_excluded_pos,
             allowed_letters=self._lfm.letters_included,
         )
 
-        self._lfm.letters_fixed_pos = self._normalize_position_constraints(
-            constraints=self._lfm.letters_fixed_pos,
+        self._lfm.letters_fixed_pos = self._normalize_position_filters(
+            filters=self._lfm.letters_fixed_pos,
             allowed_letters=self._lfm.letters_included,
         )
 
         return self._lfm
-
-
-class WordSearchService:
-    """Ищет слова в словаре по параметрам фильтрации."""
-
-    def __init__(self, cfg: Config, lfm: LetterFilterModel, log: SmartLogger):
-        """
-        Инициализирует сервис поиска слов.
-
-        Args:
-            cfg: Конфигурация приложения, включая путь к словарю.
-            lfm: Модель параметров фильтрации.
-            log: Логгер приложения.
-        """
-        self._cfg = cfg
-        self._lfm = lfm
-        self._log = log
-
-    @staticmethod
-    def _matches_position_constraints(
-        word: str, letters_fixed_pos: list[str] | str, letters_excluded_pos: list[str]
-    ) -> bool:
-        """
-        Проверяет соответствие слова позиционным ограничениям.
-
-        Для каждой позиции проверяется, что:
-
-        - фиксированный символ совпадает с символом слова;
-        - символ слова отсутствует среди запрещённых для этой позиции.
-
-        В строковом формате ``letters_fixed_pos`` символ ``+`` означает,
-        что позиция не имеет фиксированного ограничения.
-
-        Args:
-            word: Проверяемое слово.
-            letters_fixed_pos: Фиксированные символы в формате строки
-                или списка строк.
-            letters_excluded_pos: Запрещённые символы для каждой позиции.
-
-        Returns:
-            ``True``, если слово соответствует всем ограничениям,
-            иначе ``False``.
-        """
-        if not letters_fixed_pos and not letters_excluded_pos:
-            return True
-
-        for index, letter in enumerate(word):
-            required = letters_fixed_pos[index]
-            forbidden = letters_excluded_pos[index]
-
-            if required and required != "+" and letter != required:
-                return False
-
-            if letter in forbidden:
-                return False
-
-        return True
-
-    def search_words(self) -> list[str]:
-        """
-        Находит слова в словаре по заданной модели фильтра.
-
-        Каждая строка словаря приводится к нижнему регистру и проверяется
-        по длине, обязательным и запрещённым символам, а также по
-        позиционным ограничениям.
-
-        Returns:
-            Отсортированный список уникальных найденных слов.
-        """
-        path_file_ru_words: Path = self._cfg.path_file_ru_words
-        encoding_ru_words: str = self._cfg.encoding_ru_words
-
-        set_included: set[str] = set(self._lfm.letters_included)
-        set_excluded: set[str] = set(self._lfm.letters_excluded)
-        words: set[str] = set()
-
-        for line in uts.read_file_line_by_line(
-            file_path=path_file_ru_words, encoding=encoding_ru_words
-        ):
-            if (word := line.lower()) and (
-                len(word) == self._lfm.word_length
-                and set_included.issubset(word)
-                and set_excluded.isdisjoint(word)
-                and self._matches_position_constraints(
-                    word=word,
-                    letters_fixed_pos=self._lfm.letters_fixed_pos,
-                    letters_excluded_pos=self._lfm.letters_excluded_pos,
-                )
-            ):
-                words.add(word)
-
-        return sorted(words)
 
 
 class FilterBuilderFactory:
@@ -593,20 +519,23 @@ class FilterBuilderFactory:
     для интерактивного ввода или для внешней модели фильтра.
     """
 
-    def __init__(self, cfg: Config, lfm: LetterFilterModel, log: SmartLogger):
+    def __init__(self, *, cfg: Config, lfm: LetterFilterModel, log: SmartLogger):
         """
         Инициализирует фабрику строителей фильтра.
 
         Args:
-            cfg: Конфигурация приложения.
-            lfm: Модель фильтра для внешнего источника данных.
-            log: Логгер приложения.
+            cfg: Конфигурация приложения. Если не передана,
+                используется конфигурация по умолчанию.
+            lfm: Начальные параметры фильтра. Если не передана,
+                используется модель фильтрации по умолчанию.
+            log: Логгер приложения. Если не передан,
+                создаётся новый экземпляр.
         """
-        self._cfg = cfg
-        self._lfm = lfm
-        self._log = log
+        self._cfg = cfg if cfg is not None else Config()
+        self._lfm = lfm if lfm is not None else LetterFilterModel()
+        self._log = log if log is not None else SmartLogger()
 
-    def create_builder(
+    def create_filter_builder(
         self,
         is_interactive: bool,
     ) -> FilterBuilder:
@@ -625,7 +554,7 @@ class FilterBuilderFactory:
 
         return ReceivedFilterBuilder(lfm=self._lfm, log=self._log)
 
-    def build_filter(self, is_interactive: bool) -> LetterFilterModel:
+    def build_filter_model(self, is_interactive: bool) -> LetterFilterModel:
         """
         Создаёт модель фильтра из выбранного источника данных.
 
@@ -638,182 +567,6 @@ class FilterBuilderFactory:
             модель для внешнего режима.
         """
 
-        data_object = self.create_builder(is_interactive=is_interactive)
+        filter_builder = self.create_filter_builder(is_interactive=is_interactive)
 
-        return data_object.build()
-
-
-class ApplicationService:
-    """Группирует прикладные сервисы работы с результатами поиска."""
-
-    class ClearReportService:
-        """Очищает директорию для хранения отчетов от файлов."""
-
-        def __init__(self, cfg: Config | None = None):
-            """
-            Инициализирует сервис удаления отчётов.
-
-            Args:
-                cfg: Конфигурация приложения. Если не передана,
-                    используется конфигурация по умолчанию.
-            """
-            self._cfg = cfg if cfg is not None else Config()
-
-        async def clear_report_files(self) -> dict[str, int | tuple[str]]:
-            """
-            Удаляет файлы из каталога отчётов.
-
-            Returns:
-                Словарь со статистикой удаления: количеством успешно
-                удалённых файлов и количеством ошибок.
-            """
-            return await uts.clearing_folder(clear_folder=self._cfg.report_folder)
-
-    class ReportService:
-        """Формирует отчёты по результатам поиска слов."""
-
-        def __init__(
-            self,
-            cfg: Config | None = None,
-            lfm: LetterFilterModel | None = None,
-            log: SmartLogger | None = None,
-        ) -> None:
-            """
-            Инициализирует сервис формирования отчётов.
-
-            Args:
-                cfg: Конфигурация приложения.
-                lfm: Модель фильтра по умолчанию.
-                log: Логгер приложения.
-            """
-
-            self._cfg = cfg if cfg is not None else Config()
-            self._lfm = lfm if lfm is not None else LetterFilterModel()
-            self._log = log if log is not None else SmartLogger()
-
-        @staticmethod
-        def _format_word_lines(cfg: Config, words: list[str]) -> str:
-            """
-            Форматирует список слов в строки ограниченной длины.
-
-            Слова разделяются пробелами. При превышении лимита
-            ``cfg.report_line_limit`` начинается новая строка.
-
-            Args:
-                cfg: Конфигурация с ограничением длины строки.
-                words: Список слов для форматирования.
-
-            Returns:
-                Многострочная строка с найденными словами. Для пустого списка
-                возвращается пустая строка.
-            """
-
-            current_line: str = ""
-            lines: list[str] = []
-            extra_len: int
-
-            for word in words:
-                extra_len = len(word) + (1 if current_line else 0)
-                if len(current_line) + extra_len > cfg.report_line_limit:
-                    lines.append(current_line)
-                    current_line = word
-                else:
-                    current_line = f"{current_line} {word}" if current_line else word
-
-            if current_line:
-                lines.append(current_line)
-
-            return "\n".join(lines)
-
-        def _save_report_file(
-            self, cfg: Config, log: SmartLogger, report_text: str
-        ) -> Path:
-            """
-            Сохраняет текст отчёта в файл.
-
-            Каталог отчётов создаётся автоматически, если он отсутствует.
-            После успешной записи в лог отправляется информационное сообщение.
-
-            Args:
-                cfg: Конфигурация с путями к каталогу и файлу отчёта.
-                log: Логгер приложения.
-                report_text: Подготовленный текст отчёта.
-
-            Returns:
-                Путь к созданному файлу отчёта.
-            """
-            path_report_folder: Path = cfg.path_report_folder
-            path_report_file: Path = cfg.path_report_file
-
-            path_report_folder.mkdir(parents=True, exist_ok=True)
-
-            with path_report_file.open("w", encoding="utf-8") as words_file:
-                words_file.write(report_text)
-
-            log.info(
-                msg=(
-                    f"Файл с отобранными словами создан по пути: "
-                    f'"{path_report_file.relative_to(Path.cwd())}".'
-                ),
-                pretty=True,
-            )
-            return path_report_file
-
-        def create_report(
-            self,
-            is_interactive: bool = False,
-            cfg: Config | None = None,
-            lfm: LetterFilterModel | None = None,
-            log: SmartLogger | None = None,
-        ) -> tuple[str, int, Path | None]:
-            """
-            Формирует отчёт по результатам поиска слов.
-
-            Args:
-                is_interactive: Если ``True``, параметры фильтра получают
-                    из интерактивного ввода.
-                cfg: Конфигурация приложения. Если не передана,
-                    используется конфигурация экземпляра.
-                lfm: Модель фильтра для внешнего режима. Если не передана,
-                    используется модель экземпляра.
-                log: Логгер приложения. Если не передан,
-                    используется логгер экземпляра.
-
-            Returns:
-                Кортеж из трёх значений:
-
-                - текста отчёта;
-                - количества найденных слов;
-                - пути к сохранённому файлу или ``None``.
-
-                Если слова не найдены, файл не создаётся.
-            """
-            if cfg is None:
-                cfg = self._cfg.copy()
-            if lfm is None:
-                lfm = self._lfm.copy()
-            if log is None:
-                log = self._log
-
-            log.info(msg="Начат перебор слов.", pretty=True)
-            filter_builder_factory = FilterBuilderFactory(cfg=cfg, lfm=lfm, log=log)
-            lfm = filter_builder_factory.build_filter(is_interactive=is_interactive)
-            ws = WordSearchService(cfg=cfg, lfm=lfm, log=log)
-            words = ws.search_words()
-            log.info(msg="Перебор слов завершен.", pretty=True)
-
-            quantity_words = len(words)
-            log.info(msg=f"Найдено слов: {quantity_words}.", pretty=True)
-
-            word_lines: str = self._format_word_lines(cfg=cfg, words=words)
-
-            if quantity_words != 0:
-                if lfm.is_output_terminal:
-                    log.info(msg=f"\n{word_lines}", pretty=True)
-                if lfm.is_save_file:
-                    path_report_file: Path = self._save_report_file(
-                        cfg=cfg, log=log, report_text=word_lines
-                    )
-                    return word_lines, quantity_words, path_report_file
-
-            return word_lines, quantity_words, None
+        return filter_builder.build()
