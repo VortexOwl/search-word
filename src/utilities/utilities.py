@@ -43,11 +43,11 @@ class Utilities:
 
     @classmethod
     async def clearing_folder(
-    cls,
-    clear_folder: str,
-    *,
-    remove_files: bool = True,
-    remove_subfolders: bool = True,
+        cls,
+        clear_folder: str,
+        *,
+        remove_files: bool = True,
+        remove_subfolders: bool = True,
     ) -> dict[str, int | tuple[str, ...]]:
         """
         Асинхронно и безопасно очищает папку от файлов и/или подпапок,
@@ -58,7 +58,9 @@ class Utilities:
         :param remove_subfolders: удалять вложенные подпапки (рекурсивно).
         """
         if not remove_files and not remove_subfolders:
-            name_err = "Не указано, что удалять: remove_files и remove_subfolders выключены"
+            name_err = (
+                "Не указано, что удалять: remove_files и remove_subfolders выключены"
+            )
             cls._log.warning(msg=name_err, pretty=True)
             return {"success": 0, "errors": 1, "names of errors": (name_err,)}
 
