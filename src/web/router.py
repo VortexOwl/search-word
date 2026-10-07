@@ -7,9 +7,6 @@ from asyncio import sleep as a_sleep
 from contextlib import asynccontextmanager
 from enum import Enum
 from json import dumps as json_dumps
-from os import getpid as os_getpid
-from os import kill as os_kill
-from signal import SIGINT as signal_SIGINT
 from typing import Annotated
 from webbrowser import open as web_open
 
@@ -26,12 +23,13 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from uvicorn import run as uvicorn_run
+from uvicorn import Config as UvicornConfig
+from uvicorn import Server as UvicornServer
 
 # ----------------------------------------------------------------------------#
 # Project modules                                                             #
 # ----------------------------------------------------------------------------#
-from src.app import ApplicationService as app
+from app.search_words import ApplicationService as app
 from src.config import Config, LetterFilterModel, ServerConfig
 from src.logs import SmartLogger
 
@@ -39,13 +37,21 @@ from src.logs import SmartLogger
 # Application code                                                            #
 # ----------------------------------------------------------------------------#
 
+app_report = app.ReportService()
+app_clear = app.ClearReportService()
 cfg = Config()
 lfm = LetterFilterModel()
 log: SmartLogger = SmartLogger()
 log.setLevel(cfg.log_level)
-app_report = app.ReportService()
-app_clear = app.ClearReportService()
-templates = Jinja2Templates(directory="src/templates")
+sc: ServerConfig = ServerConfig()
+uvicorn_config: UvicornConfig = UvicornConfig(
+    f"{__name__}:web",
+    host=sc.host,
+    port=sc.port,
+    reload=sc.is_reload,
+    access_log=sc.access_log,
+)
+uvicorn_server: UvicornServer = UvicornServer(uvicorn_config)
 
 
 async def open_browser() -> None:
@@ -277,7 +283,7 @@ async def shutdown(request: Request) -> Response:
     Returns:
         HTML-страница или JSON-ответ с подтверждением отправки сигнала.
     """
-    os_kill(os_getpid(), signal_SIGINT)
+    uvicorn_server.should_exit = True
     log.info(msg="Запрос на остановку сервера отправлен...", pretty=True)
     if "text/html" in request.headers.get("accept", ""):
         return templates.TemplateResponse(
@@ -457,11 +463,15 @@ def start_web_server() -> None:
     """
     Запускает FastAPI-приложение с помощью Uvicorn.
 
-    Конфигурация хоста, порта и режима автоматической перезагрузки
-    загружается из ``ServerConfig``.
+    Параметры хоста, порта, режима перезагрузки и журнала доступа
+    считываются из конфигурации приложения.
     """
-    sc = ServerConfig()
-    uvicorn_run(f"{__name__}:web", host=sc.host, port=sc.port, reload=sc.is_reload)
+    try:
+        uvicorn_server.run()
+    except KeyboardInterrupt:
+        log.debug(
+            "🛑 Сервер остановлен пользователем через `Ctrl+Shift+C`.", pretty=True
+        )
 
 
 if __name__ == "__main__":
