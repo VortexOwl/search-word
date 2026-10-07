@@ -200,14 +200,12 @@ class SearchQuery(LetterFilterModel):
             is_web_save_file: Указывает, нужно ли сохранить результат
                 поиска в файл.
             word_length: Требуемая длина слова.
-            letters_included: Символы, которые должны присутствовать
-                в слове.
-            letters_excluded: Символы, которые не должны присутствовать
-                в слове.
+            letters_included: Символы, которые есть в слове.
+            letters_excluded: Символы, которых нет в слове.
             letters_fixed_pos: Символы на фиксированных позициях.
                 Для неизвестной позиции используется символ ``+``.
-            letters_excluded_pos: Списки символов, запрещённых на
-                соответствующих позициях.
+            letters_excluded_pos: Списки символов, исключенных на
+                фиксированных позициях.
 
         Returns:
             Экземпляр модели ``SearchQuery`` с обработанными параметрами.
@@ -355,8 +353,8 @@ async def post_cleanup(request: Request) -> Response:
 
 
 def _void_found(
-    request: Request, 
-    docs_content: str = "Совпадений не обнаружено.\nКоличество найденных слов: 0"
+    request: Request,
+    docs_content: str = "Совпадений не обнаружено.\nКоличество найденных слов: 0",
 ) -> Response:
     """
     Формирует ответ при отсутствии найденных слов.
@@ -382,12 +380,12 @@ def _void_found(
 
 
 @web.get(
-    "/search-word/search-result",
+    path="/search-word/search-result",
     description="Получение списка русских существительных, соответствующих заданным параметрам.",
     tags=["📝 Поиск и фильтрация слов"],
     summary="Фильтрация слов по критериям",
 )
-async def word_search(
+async def search_word(
     search_query: Annotated[SearchQuery, Depends(SearchQuery._search_query_form)],
     request: Request,
 ) -> Response:
@@ -417,7 +415,7 @@ async def word_search(
         if search_query.word_length <= 1:
             return _void_found(request=request)
 
-        found_words, quantity_words, report_path = app_report.create_report(
+        found_words, quantity_words, report_path = app_report.generate_report(
             cfg=cfg, lfm=search_query
         )
 
@@ -455,9 +453,9 @@ async def word_search(
         ) from err
 
 
-def web_start() -> None:
+def start_web_server() -> None:
     """
-    Запускает веб-приложение FastAPI через сервер Uvicorn.
+    Запускает FastAPI-приложение с помощью Uvicorn.
 
     Конфигурация хоста, порта и режима автоматической перезагрузки
     загружается из ``ServerConfig``.
@@ -467,4 +465,4 @@ def web_start() -> None:
 
 
 if __name__ == "__main__":
-    web_start()
+    start_web_server()

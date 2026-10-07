@@ -17,6 +17,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class ServerConfig(BaseSettings):
     """
     Конфигурация uvicorn.
+
+    Attributes:
+        host: Хост для запуска сервера.
+        port: Порт для запуска сервера.
+        is_reload: Включает автоматическую перезагрузку сервера.
     """
     model_config = SettingsConfigDict(env_prefix="SERVER_")
     host: str = "127.0.0.1"
@@ -37,14 +42,12 @@ class LetterFilterModel(BaseSettings):
     """
     Модель параметров фильтрации слов.
 
-    Атрибуты:
+    Args:
         word_length: длина искомого слова.
         letters_excluded: символы, которые гарантированно отсутствуют в слове.
         letters_included: символы, которые гарантированно присутствуют в слове.
-        letters_excluded_pos: для каждой позиции — символы, которые не могут
-            находиться в этой позиции.
-        letters_fixed_pos: для каждой позиции — символ, который должен находиться
-            в этой позиции, либо пустая строка, если позиция не фиксирована.
+        letters_excluded_pos: для каждой позиции — символы, которые не могут находиться в этой позиции.
+        letters_fixed_pos: для каждой позиции — символ, который должен находиться в этой позиции, либо пустая строка, если позиция не фиксирована.
         is_save_file: булевское значение True/False, отвечающее на вопрос
         сохранять ли результат фильтрации в текстовый файл.
         is_output_terminal: булевское значение True/False, отвечающее на вопрос
@@ -68,7 +71,7 @@ class Config(BaseSettings):
     log_level: int = 10
     report_line_limit: int = 70
     is_open_webbrowser: bool = True
-    data_folder: str = "data"
+    data_folder: str = "src/data"
     encoding_ru_words: str = "utf-8"
     file_ru_words: str = "russian_nouns.txt"
     pattern_ru_letters: str = r"[^а-яё-]"
