@@ -1,6 +1,7 @@
 # ----------------------------------------------------------------------------#
 # Embedded libraries                                                          #
 # ----------------------------------------------------------------------------#
+import sys
 from pathlib import Path
 
 # ----------------------------------------------------------------------------#
@@ -22,10 +23,13 @@ class ServerConfig(BaseSettings):
         host: Хост для запуска сервера.
         port: Порт для запуска сервера.
         is_reload: Включает автоматическую перезагрузку сервера.
+        access_log: Включает журналирование запросов.
     """
     model_config = SettingsConfigDict(env_prefix="SERVER_")
     host: str = "127.0.0.1"
     port: int = 8000
+    is_reload: bool = not getattr(sys, "frozen", False)
+    access_log: bool = not getattr(sys, "frozen", False)
 
     @model_validator(mode="before")
     @classmethod
