@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
     <meta charset="UTF-8">
     <title>📝 Результат поиска слов</title>
     <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
 </head>
+
 <body>
     <main class="container">
         <h1>📝 Результат поиска слов</h1>
@@ -14,8 +16,10 @@
         {% else %}
         <p>Совпадений не обнаружено.<br>Количество найденных слов: 0</p>
         {% endif %}
+
         <button onclick="window.location.href='/search-word/new'">Вернуться к фильтрам</button>
-        
+        <button onclick="window.location.href='/shutdown'">Остановить сервер приложения</button>
     </main>
 </body>
+
 </html>

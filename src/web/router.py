@@ -32,6 +32,7 @@ from uvicorn import Server as UvicornServer
 from app.search_words import ApplicationService as app
 from src.config import Config, LetterFilterModel, ServerConfig
 from src.logs import SmartLogger
+from src.utilities import Utilities as uts
 
 # ----------------------------------------------------------------------------#
 # Application code                                                            #
@@ -43,6 +44,9 @@ cfg = Config()
 lfm = LetterFilterModel()
 log: SmartLogger = SmartLogger()
 log.setLevel(cfg.log_level)
+templates = Jinja2Templates(
+    directory=uts.resource_path(relative_path="src/templates")
+)
 sc: ServerConfig = ServerConfig()
 uvicorn_config: UvicornConfig = UvicornConfig(
     f"{__name__}:web",
@@ -108,7 +112,11 @@ web = FastAPI(
     lifespan=lifespan,
 )
 
-web.mount("/static", StaticFiles(directory="src/static"), name="static")
+web.mount(
+    path="/static",
+    app=StaticFiles(directory=uts.resource_path(relative_path="src/static")),
+    name="static",
+)
 
 
 class IsYesOrNo(str, Enum):
@@ -159,15 +167,15 @@ class SearchQuery(LetterFilterModel):
             Query(
                 alias="word length",
                 description="📙 Количество символов слова.",
-                examples=[SearchQuery().word_length],
+                examples=3,
             ),
-        ] = 0,
+        ],
         letters_included: Annotated[
             str,
             Query(
                 alias="included",
                 description="✔️ Символы, которые есть в слове.",
-                examples=[SearchQuery().letters_included],
+                examples="",
             ),
         ] = "",
         letters_excluded: Annotated[
@@ -175,7 +183,7 @@ class SearchQuery(LetterFilterModel):
             Query(
                 alias="excluded",
                 description="❌ Символы, которых нет в слове.",
-                examples=[SearchQuery().letters_excluded],
+                examples="",
             ),
         ] = "",
         letters_fixed_pos: Annotated[
@@ -183,7 +191,7 @@ class SearchQuery(LetterFilterModel):
             Query(
                 alias="fixed position",
                 description='✔️ Символы на фиксированных позициях. \n✔️ Если символ позиции неизвестен, укажите "+".',
-                examples=[SearchQuery().letters_fixed_pos],
+                examples="",
             ),
         ] = "",
         letters_excluded_pos: Annotated[
@@ -191,7 +199,7 @@ class SearchQuery(LetterFilterModel):
             Query(
                 alias="excluded position",
                 description="❌ Исключённые символы по позициям. \n❌ Если символ позиции неизвестен, укажите пробел.",
-                examples=[[SearchQuery().letters_excluded_pos[0]]],
+                examples=[[""]],
             ),
         ] = None,
     ) -> SearchQuery:
@@ -336,7 +344,12 @@ async def post_cleanup(request: Request) -> Response:
         HTML-страница с отчётом об очистке или JSON-ответ со сводкой
         операции.
     """
-    report = await app_clear.clear_report_files()
+    path_report_folder = cfg.path_report_folder
+    if path_report_folder.exists():
+        report = await app_clear.cleanup()
+    else:
+        report = {"success": 0, "errors": 0, "names of errors": ()}
+        log.debug(msg=f"Сводка выполнения очистки:\n{report}", pretty=True)
     if "text/html" in request.headers.get("accept", ""):
         report["pretty json"] = json_dumps(report, indent=2, ensure_ascii=False)
         context = {
