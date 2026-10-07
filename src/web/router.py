@@ -38,13 +38,14 @@ from src.utilities import Utilities as uts
 # Application code                                                            #
 # ----------------------------------------------------------------------------#
 
+
 app_report = app.ReportService()
 app_clear = app.ClearReportService()
 cfg = Config()
 lfm = LetterFilterModel()
 log: SmartLogger = SmartLogger()
 log.setLevel(cfg.log_level)
-templates = Jinja2Templates(
+template_renderer = Jinja2Templates(
     directory=uts.resource_path(relative_path="src/templates")
 )
 sc: ServerConfig = ServerConfig()
@@ -72,7 +73,7 @@ async def open_browser() -> None:
 
 
 @asynccontextmanager
-async def lifespan(web: FastAPI) -> None:
+async def lifespan(web: FastAPI):
     """
     Управляет жизненным циклом FastAPI-приложения.
 
@@ -102,7 +103,7 @@ async def lifespan(web: FastAPI) -> None:
 
 
 web = FastAPI(
-    title="📜 Words search API",
+    title="📜 Find words API",
     swagger_ui_parameters={
         "defaultModelsExpandDepth": -1,
         "tryItOutEnabled": True,
@@ -123,13 +124,14 @@ class IsYesOrNo(str, Enum):
     """
     Перечисление вариантов ответа «да» или «нет».
     """
-    YES = "✔️ Да"
-    NO = "❌ Нет"
+
+    YES = "Да"
+    NO = "Нет"
 
 
 class SearchQuery(LetterFilterModel):
     """
-    Модель параметров поиска для веб-формы.
+    Представляет параметры поиска, полученные из веб-формы.
     """
 
     is_save_file: bool = False
@@ -243,7 +245,7 @@ class SearchQuery(LetterFilterModel):
         )
 
 
-@web.get("/", include_in_schema=False)
+@web.get(path="/", include_in_schema=False)
 async def root() -> RedirectResponse:
     """
     Перенаправляет пользователя на HTML-форму поиска слов.
@@ -256,7 +258,12 @@ async def root() -> RedirectResponse:
     )
 
 
-@web.get("/search-word/new", include_in_schema=False)
+@web.get(
+    path="/search-word/new",
+    description="Отображает HTML-форму поиска слов.",
+    tags=["🌐 HTML страницы"],
+    summary="HTML-форма поиска слов",
+)
 async def new_search(request: Request) -> Response:
     """
     Отображает HTML-форму поиска слов.
@@ -267,7 +274,7 @@ async def new_search(request: Request) -> Response:
     Returns:
         HTML-страница с формой параметров поиска.
     """
-    return templates.TemplateResponse(
+    return template_renderer.TemplateResponse(
         request=request,
         name="search-word-form.html",
         status_code=status.HTTP_200_OK,
@@ -275,7 +282,7 @@ async def new_search(request: Request) -> Response:
 
 
 @web.get(
-    "/shutdown",
+    path="/shutdown",
     description="Посылает запрос на остановку веб-сервера.",
     tags=["⚙️ Конфигурация"],
     summary="Остановить веб-сервер",
@@ -294,7 +301,7 @@ async def shutdown(request: Request) -> Response:
     uvicorn_server.should_exit = True
     log.info(msg="Запрос на остановку сервера отправлен...", pretty=True)
     if "text/html" in request.headers.get("accept", ""):
-        return templates.TemplateResponse(
+        return template_renderer.TemplateResponse(
             request=request,
             name="shutdown.html",
             status_code=status.HTTP_202_ACCEPTED,
@@ -308,10 +315,15 @@ async def shutdown(request: Request) -> Response:
     )
 
 
-@web.get("/cleanup", include_in_schema=False)
+@web.get(
+    path="/cleanup",
+    description="Отображает HTML-форму очистки папки отчётов.",
+    tags=["🌐 HTML страницы"],
+    summary="HTML-форма очистки папки отчётов",
+)
 async def get_cleanup(request: Request) -> Response:
     """
-     Отображает HTML-форму очистки папки отчётов.
+    Отображает HTML-форму очистки папки отчётов.
 
     Args:
         request: Текущий HTTP-запрос.
@@ -319,7 +331,7 @@ async def get_cleanup(request: Request) -> Response:
     Returns:
         HTML-страница с формой запуска очистки отчётов.
     """
-    return templates.TemplateResponse(
+    return template_renderer.TemplateResponse(
         request=request,
         name="cleanup.html",
         status_code=status.HTTP_200_OK,
@@ -327,7 +339,7 @@ async def get_cleanup(request: Request) -> Response:
 
 
 @web.post(
-    "/cleanup",
+    path="/cleanup",
     description="Очищает папку для отчетов от файлов.",
     tags=["⚙️ Конфигурация"],
     summary="Очистить от файлов директорию для формирования отчётов",
@@ -355,7 +367,7 @@ async def post_cleanup(request: Request) -> Response:
         context = {
             "report": report,
         }
-        return templates.TemplateResponse(
+        return template_renderer.TemplateResponse(
             request=request,
             name="cleanup.html",
             context=context,
@@ -387,7 +399,7 @@ def _void_found(
         HTML-страница или текстовый HTTP-ответ со статусом ``404``.
     """
     if "text/html" in request.headers.get("accept", ""):
-        return templates.TemplateResponse(
+        return template_renderer.TemplateResponse(
             request=request,
             name="search-word-result.html",
             status_code=status.HTTP_404_NOT_FOUND,
@@ -455,7 +467,7 @@ async def search_word(
             "found_words": found_words,
         }
         if "text/html" in request.headers.get("accept", ""):
-            return templates.TemplateResponse(
+            return template_renderer.TemplateResponse(
                 request=request,
                 name="search-word-result.html",
                 context=context,
