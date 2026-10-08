@@ -106,7 +106,7 @@ class Config(BaseSettings):
     """
 
     model_config = SettingsConfigDict(env_prefix="APP_")
-    log_level: int = 10
+    log_level: int = 20 if getattr(sys, "frozen", False) else 10
     report_line_limit: int = 70
     is_open_webbrowser: bool = True
     data_folder: str = "src/data"
