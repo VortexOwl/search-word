@@ -15,4 +15,4 @@ COPY . ./
 
 RUN uv sync --frozen
 
-CMD ["uv", "run", "web"]
+CMD ["uv", "run", "start"]

@@ -7,9 +7,6 @@ from asyncio import sleep as a_sleep
 from contextlib import asynccontextmanager
 from enum import Enum
 from json import dumps as json_dumps
-from os import getpid as os_getpid
-from os import kill as os_kill
-from signal import SIGINT as signal_SIGINT
 from typing import Annotated
 from webbrowser import open as web_open
 
@@ -26,26 +23,40 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from uvicorn import run as uvicorn_run
+from uvicorn import Config as UvicornConfig
+from uvicorn import Server as UvicornServer
 
 # ----------------------------------------------------------------------------#
 # Project modules                                                             #
 # ----------------------------------------------------------------------------#
-from src.app import ApplicationService as app
+from app.search_words import ApplicationService as app
 from src.config import Config, LetterFilterModel, ServerConfig
 from src.logs import SmartLogger
+from src.utilities import Utilities as uts
 
 # ----------------------------------------------------------------------------#
 # Application code                                                            #
 # ----------------------------------------------------------------------------#
 
+
+app_report = app.ReportService()
+app_clear = app.ClearReportService()
 cfg = Config()
 lfm = LetterFilterModel()
 log: SmartLogger = SmartLogger()
 log.setLevel(cfg.log_level)
-app_report = app.ReportService()
-app_clear = app.ClearReportService()
-templates = Jinja2Templates(directory="src/templates")
+template_renderer = Jinja2Templates(
+    directory=uts.resource_path(relative_path="src/templates")
+)
+sc: ServerConfig = ServerConfig()
+uvicorn_config: UvicornConfig = UvicornConfig(
+    f"{__name__}:web",
+    host=sc.host,
+    port=sc.port,
+    reload=sc.is_reload,
+    access_log=sc.access_log,
+)
+uvicorn_server: UvicornServer = UvicornServer(uvicorn_config)
 
 
 async def open_browser() -> None:
@@ -62,7 +73,7 @@ async def open_browser() -> None:
 
 
 @asynccontextmanager
-async def lifespan(web: FastAPI) -> None:
+async def lifespan(web: FastAPI):
     """
     Управляет жизненным циклом FastAPI-приложения.
 
@@ -92,7 +103,7 @@ async def lifespan(web: FastAPI) -> None:
 
 
 web = FastAPI(
-    title="📜 Words search API",
+    title="📜 Find words API",
     swagger_ui_parameters={
         "defaultModelsExpandDepth": -1,
         "tryItOutEnabled": True,
@@ -102,20 +113,25 @@ web = FastAPI(
     lifespan=lifespan,
 )
 
-web.mount("/static", StaticFiles(directory="src/static"), name="static")
+web.mount(
+    path="/static",
+    app=StaticFiles(directory=uts.resource_path(relative_path="src/static")),
+    name="static",
+)
 
 
 class IsYesOrNo(str, Enum):
     """
     Перечисление вариантов ответа «да» или «нет».
     """
-    YES = "✔️ Да"
-    NO = "❌ Нет"
+
+    YES = "Да"
+    NO = "Нет"
 
 
 class SearchQuery(LetterFilterModel):
     """
-    Модель параметров поиска для веб-формы.
+    Представляет параметры поиска, полученные из веб-формы.
     """
 
     is_save_file: bool = False
@@ -153,15 +169,15 @@ class SearchQuery(LetterFilterModel):
             Query(
                 alias="word length",
                 description="📙 Количество символов слова.",
-                examples=[SearchQuery().word_length],
+                examples=3,
             ),
-        ] = 0,
+        ],
         letters_included: Annotated[
             str,
             Query(
                 alias="included",
                 description="✔️ Символы, которые есть в слове.",
-                examples=[SearchQuery().letters_included],
+                examples="",
             ),
         ] = "",
         letters_excluded: Annotated[
@@ -169,7 +185,7 @@ class SearchQuery(LetterFilterModel):
             Query(
                 alias="excluded",
                 description="❌ Символы, которых нет в слове.",
-                examples=[SearchQuery().letters_excluded],
+                examples="",
             ),
         ] = "",
         letters_fixed_pos: Annotated[
@@ -177,7 +193,7 @@ class SearchQuery(LetterFilterModel):
             Query(
                 alias="fixed position",
                 description='✔️ Символы на фиксированных позициях. \n✔️ Если символ позиции неизвестен, укажите "+".',
-                examples=[SearchQuery().letters_fixed_pos],
+                examples="",
             ),
         ] = "",
         letters_excluded_pos: Annotated[
@@ -185,7 +201,7 @@ class SearchQuery(LetterFilterModel):
             Query(
                 alias="excluded position",
                 description="❌ Исключённые символы по позициям. \n❌ Если символ позиции неизвестен, укажите пробел.",
-                examples=[[SearchQuery().letters_excluded_pos[0]]],
+                examples=[[""]],
             ),
         ] = None,
     ) -> SearchQuery:
@@ -200,14 +216,12 @@ class SearchQuery(LetterFilterModel):
             is_web_save_file: Указывает, нужно ли сохранить результат
                 поиска в файл.
             word_length: Требуемая длина слова.
-            letters_included: Символы, которые должны присутствовать
-                в слове.
-            letters_excluded: Символы, которые не должны присутствовать
-                в слове.
+            letters_included: Символы, которые есть в слове.
+            letters_excluded: Символы, которых нет в слове.
             letters_fixed_pos: Символы на фиксированных позициях.
                 Для неизвестной позиции используется символ ``+``.
-            letters_excluded_pos: Списки символов, запрещённых на
-                соответствующих позициях.
+            letters_excluded_pos: Списки символов, исключенных на
+                фиксированных позициях.
 
         Returns:
             Экземпляр модели ``SearchQuery`` с обработанными параметрами.
@@ -231,7 +245,7 @@ class SearchQuery(LetterFilterModel):
         )
 
 
-@web.get("/", include_in_schema=False)
+@web.get(path="/", include_in_schema=False)
 async def root() -> RedirectResponse:
     """
     Перенаправляет пользователя на HTML-форму поиска слов.
@@ -244,7 +258,12 @@ async def root() -> RedirectResponse:
     )
 
 
-@web.get("/search-word/new", include_in_schema=False)
+@web.get(
+    path="/search-word/new",
+    description="Отображает HTML-форму поиска слов.",
+    tags=["🌐 HTML страницы"],
+    summary="HTML-форма поиска слов",
+)
 async def new_search(request: Request) -> Response:
     """
     Отображает HTML-форму поиска слов.
@@ -255,7 +274,7 @@ async def new_search(request: Request) -> Response:
     Returns:
         HTML-страница с формой параметров поиска.
     """
-    return templates.TemplateResponse(
+    return template_renderer.TemplateResponse(
         request=request,
         name="search-word-form.html",
         status_code=status.HTTP_200_OK,
@@ -263,7 +282,7 @@ async def new_search(request: Request) -> Response:
 
 
 @web.get(
-    "/shutdown",
+    path="/shutdown",
     description="Посылает запрос на остановку веб-сервера.",
     tags=["⚙️ Конфигурация"],
     summary="Остановить веб-сервер",
@@ -279,10 +298,10 @@ async def shutdown(request: Request) -> Response:
     Returns:
         HTML-страница или JSON-ответ с подтверждением отправки сигнала.
     """
-    os_kill(os_getpid(), signal_SIGINT)
+    uvicorn_server.should_exit = True
     log.info(msg="Запрос на остановку сервера отправлен...", pretty=True)
     if "text/html" in request.headers.get("accept", ""):
-        return templates.TemplateResponse(
+        return template_renderer.TemplateResponse(
             request=request,
             name="shutdown.html",
             status_code=status.HTTP_202_ACCEPTED,
@@ -296,10 +315,15 @@ async def shutdown(request: Request) -> Response:
     )
 
 
-@web.get("/cleanup", include_in_schema=False)
+@web.get(
+    path="/cleanup",
+    description="Отображает HTML-форму очистки папки отчётов.",
+    tags=["🌐 HTML страницы"],
+    summary="HTML-форма очистки папки отчётов",
+)
 async def get_cleanup(request: Request) -> Response:
     """
-     Отображает HTML-форму очистки папки отчётов.
+    Отображает HTML-форму очистки папки отчётов.
 
     Args:
         request: Текущий HTTP-запрос.
@@ -307,7 +331,7 @@ async def get_cleanup(request: Request) -> Response:
     Returns:
         HTML-страница с формой запуска очистки отчётов.
     """
-    return templates.TemplateResponse(
+    return template_renderer.TemplateResponse(
         request=request,
         name="cleanup.html",
         status_code=status.HTTP_200_OK,
@@ -315,7 +339,7 @@ async def get_cleanup(request: Request) -> Response:
 
 
 @web.post(
-    "/cleanup",
+    path="/cleanup",
     description="Очищает папку для отчетов от файлов.",
     tags=["⚙️ Конфигурация"],
     summary="Очистить от файлов директорию для формирования отчётов",
@@ -332,13 +356,18 @@ async def post_cleanup(request: Request) -> Response:
         HTML-страница с отчётом об очистке или JSON-ответ со сводкой
         операции.
     """
-    report = await app_clear.clear_report_files()
+    path_report_folder = cfg.path_report_folder
+    if path_report_folder.exists():
+        report = await app_clear.cleanup()
+    else:
+        report = {"success": 0, "errors": 0, "names of errors": ()}
+        log.debug(msg=f"Сводка выполнения очистки:\n{report}", pretty=True)
     if "text/html" in request.headers.get("accept", ""):
         report["pretty json"] = json_dumps(report, indent=2, ensure_ascii=False)
         context = {
             "report": report,
         }
-        return templates.TemplateResponse(
+        return template_renderer.TemplateResponse(
             request=request,
             name="cleanup.html",
             context=context,
@@ -355,8 +384,8 @@ async def post_cleanup(request: Request) -> Response:
 
 
 def _void_found(
-    request: Request, 
-    docs_content: str = "Совпадений не обнаружено.\nКоличество найденных слов: 0"
+    request: Request,
+    docs_content: str = "Совпадений не обнаружено.\nКоличество найденных слов: 0",
 ) -> Response:
     """
     Формирует ответ при отсутствии найденных слов.
@@ -370,7 +399,7 @@ def _void_found(
         HTML-страница или текстовый HTTP-ответ со статусом ``404``.
     """
     if "text/html" in request.headers.get("accept", ""):
-        return templates.TemplateResponse(
+        return template_renderer.TemplateResponse(
             request=request,
             name="search-word-result.html",
             status_code=status.HTTP_404_NOT_FOUND,
@@ -382,12 +411,12 @@ def _void_found(
 
 
 @web.get(
-    "/search-word/search-result",
+    path="/search-word/search-result",
     description="Получение списка русских существительных, соответствующих заданным параметрам.",
     tags=["📝 Поиск и фильтрация слов"],
     summary="Фильтрация слов по критериям",
 )
-async def word_search(
+async def search_word(
     search_query: Annotated[SearchQuery, Depends(SearchQuery._search_query_form)],
     request: Request,
 ) -> Response:
@@ -417,7 +446,7 @@ async def word_search(
         if search_query.word_length <= 1:
             return _void_found(request=request)
 
-        found_words, quantity_words, report_path = app_report.create_report(
+        found_words, quantity_words, report_path = app_report.generate_report(
             cfg=cfg, lfm=search_query
         )
 
@@ -438,7 +467,7 @@ async def word_search(
             "found_words": found_words,
         }
         if "text/html" in request.headers.get("accept", ""):
-            return templates.TemplateResponse(
+            return template_renderer.TemplateResponse(
                 request=request,
                 name="search-word-result.html",
                 context=context,
@@ -455,16 +484,18 @@ async def word_search(
         ) from err
 
 
-def web_start() -> None:
+def start_web_server() -> None:
     """
-    Запускает веб-приложение FastAPI через сервер Uvicorn.
+    Запускает FastAPI-приложение с помощью Uvicorn.
 
-    Конфигурация хоста, порта и режима автоматической перезагрузки
-    загружается из ``ServerConfig``.
+    Параметры хоста, порта, режима перезагрузки и журнала доступа
+    считываются из конфигурации приложения.
     """
-    sc = ServerConfig()
-    uvicorn_run(f"{__name__}:web", host=sc.host, port=sc.port, reload=sc.is_reload)
+    try:
+        uvicorn_server.run()
+    except KeyboardInterrupt:
+        log.info("🛑 Сервер остановлен пользователем через `Ctrl+C`.", pretty=True)
 
 
 if __name__ == "__main__":
-    web_start()
+    start_web_server()

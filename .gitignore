@@ -9,4 +9,5 @@ build/
 
 # Local project files
 /logs/
-/docs/
+/report/
+/git-scripts/

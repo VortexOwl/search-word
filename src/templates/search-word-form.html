@@ -1,15 +1,14 @@
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
     <meta charset="UTF-8">
     <title>📝 Поиск слов</title>
     <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
-    <script
-        src="{{ url_for('static', path='script.js') }}"
-        defer
-    >
+    <script src="{{ url_for('static', path='script.js') }}" defer>
     </script>
 </head>
+
 <body>
     <main class="container">
         <h1>📝 Поиск слов</h1>
@@ -18,56 +17,31 @@
             <label for="word_length">
                 📙 Количество символов слова.
             </label>
-            <input
-                type="number"
-                id="word_length"
-                name="word length"
-                min="0"
-                value="0"
-            >
+            <input type="number" id="word_length" name="word length" min="0" required>
 
             <label for="included">
                 ✔️ Символы, которые есть в слове.
             </label>
-            <input
-                type="text"
-                id="included"
-                name="included"
-                placeholder="например: абв"
-            >
+            <input type="text" id="included" name="included" placeholder="например: абв">
 
             <label for="excluded">
                 ❌ Символы, которых нет в слове.
             </label>
-            <input
-                type="text"
-                id="excluded"
-                name="excluded"
-                placeholder="например: ёж"
-            >
+            <input type="text" id="excluded" name="excluded" placeholder="например: ёж">
 
             <label for="fixed_position">
                 ✔️ Символы на фиксированных позициях.
                 <br>
                 ✔️ Если символ позиции неизвестен, укажите "+"
             </label>
-            <input
-                type="text"
-                id="fixed_position"
-                name="fixed position"
-                placeholder="например: а++о+"
-            >
+            <input type="text" id="fixed_position" name="fixed position" placeholder="например: а++о+">
 
             <label for="excluded_position">
                 ❌ Исключённые символы по позициям.
             </label>
             <div id="excluded-position-list">
                 <div class="dynamic-input">
-                    <input
-                        type="text"
-                        name="excluded position"
-                        placeholder="например: ба"
-                    >
+                    <input type="text" name="excluded position" placeholder="например: ба">
                     <button type="button" class="remove-field">
                         Удалить
                     </button>
@@ -81,8 +55,8 @@
                 💾 Сохранить результат в файл?
             </label>
             <select id="saving_file" name="saving file">
-                <option value="❌ Нет">Нет</option>
-                <option value="✔️ Да">Да</option>
+                <option value="Нет">Нет</option>
+                <option value="Да">Да</option>
             </select>
 
             <button type="submit">Найти слова</button>
@@ -92,4 +66,5 @@
         <button onclick="window.location.href='/shutdown'">Остановить сервер приложения</button>
     </main>
 </body>
+
 </html>
